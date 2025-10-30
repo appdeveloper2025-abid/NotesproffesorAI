@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Note Processor</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter Font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+        /* Custom scrollbar styling for a cleaner look */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #a0a0a0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="min-h-screen p-4 sm:p-8">
+        <header class="mb-6">
+            <h1 class="text-3xl font-extrabold text-blue-800">Note Professor Assistant</h1>
+            <p class="text-sm text-gray-600">Securely save notes and process content using Gemini intelligence.</p>
+        </header>
+
+        <div id="main-content" class="flex flex-col lg:flex-row gap-6">
+
+            <!-- Saved Notes Sidebar (Left) -->
+            <div class="lg:w-1/3 bg-white p-4 rounded-xl shadow-lg h-full lg:h-[70vh] flex flex-col">
+                <h2 class="text-xl font-bold mb-3 text-blue-700">Saved Notes</h2>
+                <div id="notes-list" class="flex-grow overflow-y-auto custom-scrollbar space-y-2">
+                    <!-- Notes will be injected here -->
+                    <p id="loading-notes" class="text-gray-500 italic">Loading notes...</p>
+                </div>
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <p id="user-info" class="text-xs text-gray-400 truncate">Loading User ID...</p>
+                </div>
+            </div>
+
+            <!-- Main Editor and Tools (Right) -->
+            <div class="lg:w-2/3 flex flex-col gap-6">
+
+                <!-- Note Editor -->
+                <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <h2 class="text-xl font-bold mb-3 text-blue-700">Current Note Editor</h2>
+                    <textarea id="note-input" rows="10" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="Start typing your research, lecture summaries, or brainstorm ideas here..."></textarea>
+                    <button id="save-btn" class="mt-3 w-full sm:w-auto px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 shadow-md">
+                        Save Note
+                    </button>
+                </div>
+
+                <!-- Gemini Tools -->
+                <div class="bg-white p-6 rounded-xl shadow-lg">
+                    <h2 class="text-xl font-bold mb-3 text-blue-700">Process Note with AI Tools</h2>
+                    <p class="text-sm text-gray-600 mb-4">Select the note text above and choose a tool to process it.</p>
+                    <div class="flex flex-wrap gap-3">
+                        <button onclick="processNote('summarize')" class="tool-btn bg-indigo-500 hover:bg-indigo-600">
+                            Summarize (Concise)
+                        </button>
+                        <button onclick="processNote('explain')" class="tool-btn bg-purple-500 hover:bg-purple-600">
+                            Explain with Grounding (New!)
+                        </button>
+                        <button onclick="processNote('outline')" class="tool-btn bg-pink-500 hover:bg-pink-600">
+                            Create Key Takeaways (Structured JSON! New!)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- AI Output Area -->
+                <div class="bg-white p-6 rounded-xl shadow-lg flex-grow">
+                    <h2 class="text-xl font-bold mb-3 text-blue-700">AI Processing Results</h2>
+                    <div id="output-area" class="min-h-[150px] p-3 border border-gray-200 bg-gray-50 rounded-lg whitespace-pre-wrap">
+                        The results of your selected tool will appear here.
+                    </div>
+                    <div id="citation-area" class="mt-2 text-xs text-gray-500"></div>
+                    <div id="loading-indicator" class="hidden mt-2 text-center text-blue-500 font-semibold">
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Thinking...
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Custom Modal for Alerts/Confirmations -->
+        <div id="custom-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center p-4">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+                <h3 id="modal-title" class="text-lg font-bold mb-3 text-red-600">Error</h3>
+                <p id="modal-message" class="mb-4 text-gray-700">An unexpected error occurred.</p>
+                <div class="flex justify-end space-x-2">
+                    <button id="modal-close-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">OK</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, query, serverTimestamp, setDoc, deleteDoc, orderBy, limit, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- GLOBAL VARIABLES (Provided by Canvas) ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+        const NOTES_COLLECTION = 'notes'; // Collection name for user notes
+
+        // Utility function to show custom modal (replaces alert/confirm)
+        window.showModal = (title, message, isError = true) => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            modal.querySelector('h3').classList.toggle('text-red-600', isError);
+            modal.querySelector('h3').classList.toggle('text-green-600', !isError);
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        document.getElementById('modal-close-btn').onclick = () => {
+            document.getElementById('custom-modal').classList.add('hidden');
+            document.getElementById('custom-modal').classList.remove('flex');
+        };
+
+        // --- 1. FIREBASE INITIALIZATION AND AUTHENTICATION ---
+        async function initializeFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration is missing.");
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('debug'); // Enable detailed Firestore logging
+
+                // 1. Authenticate the user
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // 2. Set up authentication state listener
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-info').textContent = `User ID: ${userId}`;
+                        isAuthReady = true;
+                        // Start listening to notes once auth is ready
+                        setupNotesListener();
+                    } else {
+                        // User signed out, though unlikely in this environment
+                        userId = null;
+                        isAuthReady = false;
+                        document.getElementById('user-info').textContent = 'Signed out.';
+                        document.getElementById('notes-list').innerHTML = '<p class="text-red-500">Please sign in to view notes.</p>';
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                showModal("Setup Error", "Failed to initialize Firebase or authenticate. Check the console for details.", true);
+            }
+        }
+
+        // --- 2. FIRESTORE DATA FUNCTIONS ---
+
+        // Helper function to get the base path for user-specific data
+        const getUserCollectionRef = () => {
+            if (!userId) return null;
+            // Path: /artifacts/{appId}/users/{userId}/notes
+            return collection(db, 'artifacts', appId, 'users', userId, NOTES_COLLECTION);
+        };
+
+        function setupNotesListener() {
+            const notesRef = getUserCollectionRef();
+            if (!notesRef) return;
+
+            // Using onSnapshot to listen for real-time updates
+            // NOTE: We avoid orderBy() to prevent needing indexes, and sort in JS
+            const q = query(notesRef); // Fetch all documents in the collection
+
+            document.getElementById('loading-notes').classList.remove('hidden');
+
+            onSnapshot(q, (snapshot) => {
+                const notesList = [];
+                snapshot.forEach(doc => {
+                    // Deserialize the data
+                    const data = doc.data();
+                    const noteContent = data.content ? data.content : 'No content';
+                    notesList.push({
+                        id: doc.id,
+                        content: noteContent,
+                        timestamp: data.timestamp ? data.timestamp.toMillis() : 0
+                    });
+                });
+
+                // Sort by timestamp in descending order (newest first)
+                notesList.sort((a, b) => b.timestamp - a.timestamp);
+
+                renderNotes(notesList);
+                document.getElementById('loading-notes').classList.add('hidden');
+
+            }, (error) => {
+                console.error("Error listening to notes:", error);
+                showModal("Data Error", "Failed to load notes in real-time.", true);
+            });
+        }
+
+        async function saveNote(noteText, docId = crypto.randomUUID()) {
+            if (!isAuthReady || !userId) {
+                showModal("Authentication Required", "Please wait for authentication to complete before saving.", true);
+                return;
+            }
+            if (!noteText.trim()) {
+                showModal("Input Required", "Note content cannot be empty.", true);
+                return;
+            }
+
+            const notesRef = getUserCollectionRef();
+            if (!notesRef) return;
+
+            try {
+                const noteDocRef = doc(notesRef, docId);
+                await setDoc(noteDocRef, {
+                    content: noteText.trim(),
+                    timestamp: serverTimestamp() // Use server timestamp for reliable sorting
+                });
+                document.getElementById('note-input').value = '';
+                showModal("Success!", "Note saved successfully.", false);
+
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                showModal("Save Failed", "Could not save the note.", true);
+            }
+        }
+
+        async function deleteNote(docId) {
+            if (!isAuthReady || !userId) return;
+
+            const notesRef = getUserCollectionRef();
+            if (!notesRef) return;
+
+            // In a real app, you would ask for confirmation here via a modal.
+            // For simplicity, we directly delete but notify.
+            try {
+                await deleteDoc(doc(notesRef, docId));
+                showModal("Deleted", "Note successfully deleted.", false);
+            } catch (e) {
+                console.error("Error removing document: ", e);
+                showModal("Delete Failed", "Could not delete the note.", true);
+            }
+        }
+
+        // --- 3. UI RENDERING AND EVENT HANDLERS ---
+
+        function renderNotes(notes) {
+            const notesList = document.getElementById('notes-list');
+            notesList.innerHTML = ''; // Clear existing list
+
+            if (notes.length === 0) {
+                notesList.innerHTML = '<p class="text-gray-500 italic p-2">No notes saved yet. Start typing!</p>';
+                return;
+            }
+
+            notes.forEach(note => {
+                const noteElement = document.createElement('div');
+                noteElement.className = 'p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition duration-150 group';
+                
+                // Show a truncated version of the note
+                const displayContent = note.content.substring(0, 80) + (note.content.length > 80 ? '...' : '');
+
+                noteElement.innerHTML = `
+                    <p class="text-sm font-medium text-gray-800 cursor-pointer" data-id="${note.id}" data-full-content="${note.content.replace(/"/g, '&quot;')}" title="Click to edit/view">${displayContent}</p>
+                    <div class="mt-1 flex justify-between items-center text-xs text-gray-400">
+                        <span class="timestamp">${new Date(note.timestamp).toLocaleDateString()}</span>
+                        <button class="delete-btn text-red-400 hover:text-red-600 transition opacity-0 group-hover:opacity-100" data-id="${note.id}" title="Delete Note">
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+
+                // Event listener to load note into the editor
+                noteElement.querySelector('p').addEventListener('click', (e) => {
+                    document.getElementById('note-input').value = e.target.dataset.fullContent.replace(/&quot;/g, '"');
+                    // Change save button to update mode
+                    document.getElementById('save-btn').textContent = 'Update Note';
+                    document.getElementById('save-btn').onclick = () => saveNote(document.getElementById('note-input').value, e.target.dataset.id);
+                });
+
+                // Event listener for delete button
+                noteElement.querySelector('.delete-btn').addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent the note content from loading
+                    const idToDelete = e.currentTarget.dataset.id;
+                    deleteNote(idToDelete);
+                });
+
+                notesList.appendChild(noteElement);
+            });
+
+            // Reset save button to "Save New" logic
+            if (document.getElementById('note-input').value === '') {
+                document.getElementById('save-btn').textContent = 'Save Note';
+                document.getElementById('save-btn').onclick = () => saveNote(document.getElementById('note-input').value);
+            }
+        }
+
+        document.getElementById('save-btn').onclick = () => saveNote(document.getElementById('note-input').value);
+
+        // --- 4. GEMINI API FUNCTIONS ---
+
+        // Exponential backoff retry utility
+        async function fetchWithRetry(url, options, maxRetries = 3) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error; // Re-throw on last attempt
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    console.warn(`Request failed, retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        async function processNote(toolType) {
+            const noteText = document.getElementById('note-input').value;
+            const outputArea = document.getElementById('output-area');
+            const citationArea = document.getElementById('citation-area');
+            const loading = document.getElementById('loading-indicator');
+
+            if (!noteText.trim()) {
+                showModal("Input Missing", "Please enter or select a note in the editor before using a tool.", true);
+                return;
+            }
+
+            loading.classList.remove('hidden');
+            outputArea.textContent = 'Processing your request...';
+            citationArea.textContent = ''; // Clear previous citations
+
+            const apiKey = ""; // Canvas environment provides the API key dynamically
+            const modelName = 'gemini-2.5-flash-preview-09-2025';
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+            let systemPrompt = '';
+            let tools = [];
+            let generationConfig = {};
+
+            switch (toolType) {
+                case 'summarize':
+                    systemPrompt = "You are a detailed, easy, and simple responsive notes professor. Summarize the provided text into three concise bullet points.";
+                    break;
+                case 'explain':
+                    systemPrompt = "You are a research assistant. Provide a brief, neutral explanation of the key concepts in the user's note, ensuring the explanation is grounded in external, current information. Include at least two facts.";
+                    tools = [{ "google_search": {} }];
+                    break;
+                case 'outline':
+                    systemPrompt = "You are a study guide generator. Convert the user's notes into 4-5 core key takeaways, structured as a JSON array of objects, suitable for flashcards or study outlines.";
+                    generationConfig = {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "takeawayId": { "type": "INTEGER", "description": "A unique, sequential ID starting at 1." },
+                                    "concept": { "type": "STRING", "description": "The main concept or title of the takeaway." },
+                                    "summary": { "type": "STRING", "description": "A one or two-sentence summary of the concept." }
+                                },
+                                required: ["takeawayId", "concept", "summary"]
+                            }
+                        }
+                    };
+                    break;
+                default:
+                    loading.classList.add('hidden');
+                    outputArea.textContent = 'Invalid tool selected.';
+                    return;
+            }
+
+            const payload = {
+                contents: [{ parts: [{ text: `Note Content:\n\n---\n\n${noteText}` }] }],
+                tools: tools.length > 0 ? tools : undefined,
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: Object.keys(generationConfig).length > 0 ? generationConfig : undefined,
+            };
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            try {
+                const result = await fetchWithRetry(apiUrl, options);
+                loading.classList.add('hidden');
+
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    let displayContent = text;
+
+                    // 1. Handle Structured JSON Output
+                    if (toolType === 'outline') {
+                        try {
+                            const parsedJson = JSON.parse(text);
+                            displayContent = "## Structured Key Takeaways\n\n";
+                            parsedJson.forEach(item => {
+                                displayContent += `\n**${item.takeawayId}. ${item.concept}**\n- ${item.summary}\n`;
+                            });
+                        } catch (e) {
+                            console.error("Failed to parse JSON response:", e);
+                            displayContent = `Received structured data, but parsing failed. Raw response:\n\n${text}`;
+                        }
+                    }
+
+                    outputArea.innerHTML = displayContent; // Use innerHTML to render markdown formatting
+
+                    // 2. Handle Grounding Sources
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+
+                    if (sources.length > 0) {
+                        citationArea.innerHTML = 'Sources: ' + sources.map((s, i) =>
+                            `<a href="${s.uri}" target="_blank" class="text-blue-500 hover:underline">${i + 1}. ${s.title}</a>`
+                        ).join(' | ');
+                    } else if (toolType === 'explain') {
+                         citationArea.textContent = 'No external sources cited for this grounded explanation.';
+                    }
+
+                } else {
+                    outputArea.textContent = 'Received an empty or malformed response from the AI.';
+                    console.error("AI response error:", result);
+                }
+
+            } catch (error) {
+                loading.classList.add('hidden');
+                console.error("API Call Failed:", error);
+                outputArea.textContent = 'An error occurred while connecting to the AI service.';
+                showModal("API Error", "The request to the Gemini API failed. Check the console for network details.", true);
+            }
+        }
+
+        // Make the processNote function globally accessible from the buttons
+        window.processNote = processNote;
+
+        // Start the application
+        initializeFirebase();
+    </script>
+</body>
+</html>
+
